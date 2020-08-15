@@ -1,0 +1,71 @@
+
+#version 430 core
+#define pi 3.141592653589793238462643383279
+
+struct particle {
+        vec4        position;
+        vec4        scale;
+};
+
+struct meshData {
+        vec4        position;
+        vec4        normal;
+};
+
+//voxel buffer
+layout (std430, binding = 0) buffer entities {
+    particle   e[];
+};
+
+//mesh data buffer
+layout (std430, binding = 1) buffer meshdata {
+    meshData   m[];
+};
+
+
+uniform int meshdataCount; //number of vertex to test
+uniform float voxelSize; //size of each voxel
+uniform vec2 mouse;
+
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
+
+float squaredDistance(vec4 p1, vec4 p2){
+  float d1 = (p1.x - p2.x);
+	float d2 = (p1.y - p2.y);
+	float d3 = (p1.z - p2.z);
+	return (pow(d1, 2.0) + pow(d2, 2.0) + pow(d3, 2.0));
+}
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+   
+    vec4 position = e[gid].position;
+    vec4 scale = e[gid].scale;
+
+    float nearDist = 1000000.0;
+    int nearestIndex = -1;
+    for(int i=0; i<meshdataCount; i++){
+      vec4 vertPos = m[i].position; 
+      
+      float d = squaredDistance(vertPos, position);
+
+      if(d < nearDist){
+        nearDist = d;
+        nearestIndex = i;
+      }
+    }
+    
+    //get the nearest neighbors on mesh and us the DOT with normal to check if the point is inside the shape
+    vec4 toCell = normalize(position - m[nearestIndex].position);
+    vec4 meshNormal = m[nearestIndex].normal;
+    float toCellDOTMeshNormal = dot(toCell, meshNormal);
+    float isInside = 1. - step(-.9, toCellDOTMeshNormal);
+
+    //get only the voxel on the edge of the shape
+    float fDist = 1.- step(voxelSize, sqrt(nearDist));
+
+    float voxelScale = max(fDist, isInside); //the Dot product methods seems to be bugged so it's not used at the end
+
+    // e[gid].position = position; //we do not need to update the position
+    e[gid].scale = vec4(vec3(voxelScale), 1.0);
+}
